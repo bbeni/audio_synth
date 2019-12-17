@@ -16,9 +16,9 @@ class Synth:
         
         # adsr in units if chunk_size/samplerate ~ 1/40 second
         self.attack = 2
-        self.decay = 4
-        self.sustain = 0.5
-        self.release = 15
+        self.decay = 20
+        self.sustain = 0.64
+        self.release = 2
 
         self.attack_env = np.linspace(0, 1, chunk_size*self.attack)
         self.decay_env = np.linspace(1, self.sustain, chunk_size*self.decay)
@@ -26,7 +26,7 @@ class Synth:
         self.notes_envelope = {}
 
         self.wavetable = {}
-        self.base_freq = 220
+        self.base_freq = 55
         self.sample_rate = sample_rate
         self.chunk_size = chunk_size
 
@@ -49,9 +49,9 @@ class Synth:
 
             T = 1/freq
 
-            print(freq)
-            print(n_samples)
-            print(T)
+            #print(freq)
+            #print(n_samples)
+            #print(T)
 
             a = False
             while n_samples < self.chunk_size:
@@ -64,19 +64,20 @@ class Synth:
             self.wavetable[note] = wave
 
             #overtones
+            piano = [0.1, 0.33, 0.075, 0.065, 0.06, 0, 0.025, 0, 0, 0, 0, 0.01]
             guitar = [0.7, 1.25, 0.15, 0.15, 0.13, 0, 0.01, 0.2, 0.07, 0.02]
-            for d, coeff in zip(range(2,16), guitar):
+            for d, coeff in zip(range(2,16), piano):
                 wave += np.sin(freq*d*t*2*np.pi)*coeff
                 #plt.plot(t, np.sin(freq*d*t*2*np.pi))
                 #plt.show()
 
-            print(np.tile(wave, 2).shape)
+            #print(np.tile(wave, 2).shape)
 
             if False:
                 plt.plot(np.linspace(0,T*2,2*n_samples), np.tile(wave, 2))
                 plt.show()
 
-            print(T, n_samples, len(wave))
+            #print(T, n_samples, len(wave))
 
 
     def play_note(self, note):
@@ -85,6 +86,8 @@ class Synth:
 
     def next_env(self, note):
         c_size = self.chunk_size
+
+        # bad...
         if not note in self.notes_envelope:
             return 0
 
@@ -113,6 +116,7 @@ class Synth:
             return self.release_env[t*c_size:(t+1)*c_size]
 
     def dirty_hack(self):
+        # bad fix for a bug
         k1 = list(self.notes_on.keys())
         k2 = list(self.notes_envelope.keys())
 
@@ -128,10 +132,10 @@ class Synth:
         
     def update(self, frame_count, time_info):
         audio_chunk = np.zeros((self.chunk_size))
-        for note, offset in self.notes_on.items():
+        for note, offset in list(self.notes_on.items()):
             wave = self.wavetable[note]
             l = len(wave)
-            print(note, offset)
+            #print(note, offset)
 
             env = self.next_env(note)
 
@@ -143,9 +147,31 @@ class Synth:
 
         #stereo
         audio_chunk = np.repeat(audio_chunk, 2)
+        
+
+        # just for fun xD
+        _, _, Zxx = signal.stft(audio_chunk.reshape((int(self.chunk_size/16), 32)))
+        _, xrec = signal.istft(Zxx)
+        xrec = -0.8*xrec*np.sin(np.linspace(0,10*np.pi,self.chunk_size*2).reshape(xrec.shape))
+        xrec = xrec*np.sin(np.linspace(0,2*np.pi,self.chunk_size*2).reshape(xrec.shape))
+        audio_chunk = xrec.reshape((self.chunk_size*2))
+
+        ##reverb
+        #audio_chunk[5:] += 0.2*audio_chunk[:-5] 
+        #audio_chunk[9:] += 0.3*audio_chunk[:-9] 
+        #audio_chunk[30:] += 0.4*audio_chunk[:-30]
+        #audio_chunk *= 0.5
+
+        ## smoothing
+        #box_pts = 40
+        #box = np.ones(box_pts)/box_pts
+        #audio_chunk = np.convolve(audio_chunk, box, mode='same')
 
         n_notes_on = len(self.notes_on)
         if n_notes_on > 0:
             audio_chunk *= np.iinfo(np.int32).max*0.7 / n_notes_on / self.max_amp
+
+
+ 
 
         self.frames = bytes(audio_chunk.astype(np.int32))
